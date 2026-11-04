@@ -39,6 +39,11 @@ namespace VRBuilder.Core
 
             ///<inheritdoc />
             [DataMember]
+            [HideInProcessInspector]
+            public bool IsHidden { get; set; }
+
+            ///<inheritdoc />
+            [DataMember]
             [DrawingPriority(1)]
             [UsesSpecificProcessDrawer("MultiLineStringDrawer")]
             public string Description { get; set; }
@@ -117,7 +122,8 @@ namespace VRBuilder.Core
 
             public UnlockProcess(EntityData data) : base(data)
             {
-                toUnlock = Data.ToUnlock.Select(reference => new LockablePropertyData(reference.GetProperty())).ToList();
+                toUnlock = Data.ToUnlock.Select(reference => reference.GetProperty()).Where(property => property != null)
+                    .Select(property => new LockablePropertyData(property)).ToList();
 
                 foreach (Guid tag in Data.GroupsToUnlock.Keys)
                 {
@@ -157,7 +163,8 @@ namespace VRBuilder.Core
 
             public LockProcess(EntityData data) : base(data)
             {
-                toUnlock = Data.ToUnlock.Select(reference => new LockablePropertyData(reference.GetProperty())).ToList();
+                toUnlock = Data.ToUnlock.Select(reference => reference.GetProperty()).Where(property => property != null)
+                    .Select(property => new LockablePropertyData(property)).ToList();
 
                 foreach (Guid tag in Data.GroupsToUnlock.Keys)
                 {
@@ -244,7 +251,8 @@ namespace VRBuilder.Core
 
             public AbortingProcess(EntityData data) : base(data)
             {
-                lockableProperties = Data.ToUnlock.Select(reference => new LockablePropertyData(reference.GetProperty())).ToList();
+                lockableProperties = Data.ToUnlock.Select(reference => reference.GetProperty()).Where(property => property != null)
+                    .Select(property => new LockablePropertyData(property)).ToList();
 
                 foreach (Guid tag in Data.GroupsToUnlock.Keys)
                 {

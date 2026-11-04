@@ -54,7 +54,7 @@ namespace VRBuilder.Core.TextToSpeech.Utils
         public static string PrepareFilepathForText(this ITextToSpeechConfiguration configuration, string key, string text, Locale locale)
         {
             string filename = configuration.GetUniqueTextToSpeechFilename(key, text, locale);
-            string directory = Path.Combine(Application.temporaryCachePath.Replace('/', Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, RuntimeConfigurator.Configuration.GetTextToSpeechSettings().StreamingAssetCacheDirectoryName);
+            string directory = Path.Combine(Application.temporaryCachePath.Replace('/', Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, TextToSpeechSettings.Instance.StreamingAssetCacheDirectoryName);
             Directory.CreateDirectory(directory);
             return Path.Combine(directory, filename);
         }

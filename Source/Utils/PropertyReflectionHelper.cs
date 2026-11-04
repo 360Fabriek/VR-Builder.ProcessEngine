@@ -34,13 +34,13 @@ namespace VRBuilder.Core.Utils
             {
                 foreach (ICondition condition in transition.Data.Conditions)
                 {
+                    result.AddRange(ExtractLockablePropertiesFromCondition(condition.Data));
+
+                    // Composite conditions can expose additional lockable properties which are
+                    // not discoverable by reflecting only their top-level serialized data.
                     if (condition is ILockablePropertiesProvider lockablePropertiesProvider)
                     {
-                        result.AddRange(lockablePropertiesProvider.GetLockableProperties());
-                    }
-                    else
-                    {
-                        result.AddRange(ExtractLockablePropertiesFromCondition(condition.Data));
+                        result = result.Union(lockablePropertiesProvider.GetLockableProperties()).ToList();
                     }
                 }
             }

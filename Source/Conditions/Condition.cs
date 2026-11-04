@@ -6,18 +6,42 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using UnityEngine;
 using VRBuilder.Core.RestrictiveEnvironment;
+using VRBuilder.Core.Configuration.Modes;
 using VRBuilder.Core.Utils;
 using VRBuilder.Core.Utils.Logging;
 using VRBuilder.Unity;
 
 namespace VRBuilder.Core.Conditions
 {
+    internal interface IDeferredConditionConfiguration
+    {
+        void ConfigureBeforeActivation();
+    }
+
     /// <summary>
     /// An implementation of <see cref="ICondition"/>. Use it as the base class for your custom conditions.
     /// </summary>
     [DataContract(IsReference = true)]
-    public abstract class Condition<TData> : CompletableEntity<TData>, ICondition, ILockablePropertiesProvider where TData : class, IConditionData, new()
+    public abstract class Condition<TData> : CompletableEntity<TData>, ICondition, ILockablePropertiesProvider, IDeferredConditionConfiguration where TData : class, IConditionData, new()
     {
+        private IMode configurationMode;
+        private bool configurationRequested;
+
+        /// <inheritdoc />
+        public override void Configure(IMode mode)
+        {
+            configurationMode = mode;
+            configurationRequested = true;
+            // Future steps may reference scenes which are not loaded at process setup.
+            if (LifeCycle.Stage != Stage.Inactive) base.Configure(mode);
+        }
+
+        void IDeferredConditionConfiguration.ConfigureBeforeActivation()
+        {
+            // Resolve again on every activation: the scene may have been unloaded and reloaded.
+            if (configurationRequested) base.Configure(configurationMode);
+        }
+
         protected Condition()
         {
             if (LifeCycleLoggingConfig.Instance.LogConditions)

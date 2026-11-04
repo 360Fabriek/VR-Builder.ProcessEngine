@@ -74,7 +74,7 @@ namespace VRBuilder.Core.TextToSpeech
         /// </summary>
         public ITextToSpeechProvider CreateProvider()
         {
-            TextToSpeechSettings settings = RuntimeConfigurator.Configuration.GetTextToSpeechSettings();
+            TextToSpeechSettings settings = TextToSpeechSettings.Instance;
 
             if (string.IsNullOrEmpty(settings.Provider))
             {

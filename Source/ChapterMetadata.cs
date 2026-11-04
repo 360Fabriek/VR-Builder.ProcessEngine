@@ -35,7 +35,8 @@ namespace VRBuilder.Core
         /// <summary>
         /// Stored position of the view in the graph.
         /// </summary>
-        [DataMember]
+        // Intentionally not serialized: graph viewport changes must not rewrite process files.
+        // [DataMember]
         public ViewTransform ViewTransform { get; set; }
 
         public ChapterMetadata()

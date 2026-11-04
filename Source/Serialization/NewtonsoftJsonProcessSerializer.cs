@@ -9,6 +9,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Reflection;
+using UnityEngine.Scripting.APIUpdating;
 using VRBuilder.Core.IO;
 using VRBuilder.Core.UI.Drawers.Metadata;
 using VRBuilder.Core.Utils;
@@ -29,7 +31,7 @@ namespace VRBuilder.Core.Serialization.NewtonsoftJson
         {
             return new JsonSerializerSettings
             {
-                Converters = converters,
+                Converters = converters.Concat(new JsonConverter[] { new MigratedTypeConverter() }).ToList(),
                 PreserveReferencesHandling = PreserveReferencesHandling.All,
                 Formatting = Formatting.Indented,
                 ConstructorHandling = ConstructorHandling.AllowNonPublicDefaultConstructor,
@@ -162,8 +164,30 @@ namespace VRBuilder.Core.Serialization.NewtonsoftJson
             return Deserialize<IEntity>(data, ProcessSerializerSettings);
         }
 
+        private sealed class MigratedTypeConverter : JsonConverter
+        {
+            public override bool CanConvert(Type objectType) => typeof(Type).IsAssignableFrom(objectType);
+            public override bool CanWrite => false;
+
+            public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+            {
+                if (reader.TokenType == JsonToken.Null) return null;
+                if (reader.TokenType != JsonToken.String)
+                    throw new JsonSerializationException("Expected an assembly-qualified type name.");
+                string typeName = (string)reader.Value;
+                return ReflectionUtils.GetTypeFromAssemblyQualifiedName(typeName)
+                    ?? throw new JsonSerializationException($"Could not resolve type '{typeName}'.");
+            }
+
+            public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) =>
+                throw new NotSupportedException();
+        }
+
         internal class ProcessSerializationBinder : DefaultSerializationBinder
         {
+            private static readonly Lazy<Type[]> MovedTypes = new Lazy<Type[]>(() => ReflectionUtils.GetAllTypes()
+                .Where(type => type.IsDefined(typeof(MovedFromAttribute), false)).ToArray());
+
             public override Type BindToType(string assemblyName, string typeName)
             {
                 if (typeName == "VRBuilder.Core.Editor.UI.Drawers.Metadata.ReorderableElementMetadata")
@@ -171,7 +195,68 @@ namespace VRBuilder.Core.Serialization.NewtonsoftJson
                     return typeof(ReorderableElementMetadata);
                 }
 
-                return base.BindToType(assemblyName, typeName);
+                try
+                {
+                    return base.BindToType(assemblyName, typeName);
+                }
+                catch (JsonSerializationException)
+                {
+                    Type movedType = ResolveMovedType(assemblyName, typeName);
+                    if (movedType != null)
+                    {
+                        return movedType;
+                    }
+
+                    // Resolve renamed arguments inside collection and other generic type names too.
+                    string migratedTypeName = System.Text.RegularExpressions.Regex.Replace(typeName,
+                        @"(?<=\[)([^,\[\]]+),\s*([^\[\]]+)(?=\])",
+                        match => BindToType(match.Groups[2].Value, match.Groups[1].Value).AssemblyQualifiedName);
+                    if (migratedTypeName != typeName)
+                    {
+                        return base.BindToType(assemblyName, migratedTypeName);
+                    }
+
+                    throw;
+                }
+            }
+
+            private static Type ResolveMovedType(string assemblyName, string typeName)
+            {
+                string sourceAssembly = string.IsNullOrEmpty(assemblyName) ? null : new AssemblyName(assemblyName).Name;
+                Type resolvedType = null;
+                foreach (Type type in MovedTypes.Value)
+                {
+                    foreach (CustomAttributeData attribute in type.GetCustomAttributesData().Where(attribute => attribute.AttributeType == typeof(MovedFromAttribute)))
+                    {
+                        // Unity does not expose MovedFrom's data; read its public constructor arguments.
+                        IList<CustomAttributeTypedArgument> arguments = attribute.ConstructorArguments;
+                        string oldAssembly = (arguments.Count == 4 ? arguments[2].Value as string : null) ?? type.Assembly.GetName().Name;
+                        string oldNamespace = (arguments[arguments.Count == 1 ? 0 : 1].Value as string) ?? type.Namespace;
+                        string oldName = (arguments.Count == 4 ? arguments[3].Value as string : null) ?? type.FullName.Substring(type.FullName.LastIndexOf('.') + 1);
+                        string oldFullName = string.IsNullOrEmpty(oldNamespace) ? oldName : oldNamespace + "." + oldName;
+                        if ((sourceAssembly != null && sourceAssembly != oldAssembly) ||
+                            (typeName != oldFullName && !typeName.StartsWith(oldFullName + "+", StringComparison.Ordinal)))
+                        {
+                            continue;
+                        }
+
+                        // EntityData is commonly nested in the renamed behavior or condition.
+                        Type candidate = type.Assembly.GetType(type.FullName + typeName.Substring(oldFullName.Length));
+                        if (candidate == null)
+                        {
+                            continue;
+                        }
+
+                        if (resolvedType != null && resolvedType != candidate)
+                        {
+                            throw new JsonSerializationException($"Ambiguous migration for type '{typeName}, {assemblyName}'.");
+                        }
+
+                        resolvedType = candidate;
+                    }
+                }
+
+                return resolvedType;
             }
         }
     }

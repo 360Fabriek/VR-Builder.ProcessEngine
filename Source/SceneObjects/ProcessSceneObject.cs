@@ -31,6 +31,10 @@ namespace VRBuilder.Core.SceneObjects
     [ExecuteInEditMode, DisallowMultipleComponent]
     public class ProcessSceneObject : MonoBehaviour, ISerializationCallbackReceiver, ISceneObject
     {
+#if UNITY_EDITOR
+        // Unity can invoke Awake before marking a loaded scene as a preview scene.
+        internal static bool SuppressEditorRegistration { get; set; }
+#endif
         /// <summary>
         /// Unity's serialization system doesn't know about System.Guid, so we convert to a byte array
         /// Using strings allocates memory is was twice as slow
@@ -230,6 +234,9 @@ namespace VRBuilder.Core.SceneObjects
 
         private void OnDestroy()
         {
+#if UNITY_EDITOR
+            if (SuppressEditorRegistration || UnityEditor.SceneManagement.EditorSceneManager.IsPreviewScene(gameObject.scene)) return;
+#endif
             if (RuntimeConfigurator.Exists)
             {
                 RuntimeConfigurator.Configuration.SceneObjectRegistry.Unregister(this);
@@ -264,6 +271,10 @@ namespace VRBuilder.Core.SceneObjects
         /// </summary>
         protected void Init()
         {
+#if UNITY_EDITOR
+            // Preview snapshots must retain their saved IDs without joining the open scene's registry.
+            if (SuppressEditorRegistration || UnityEditor.SceneManagement.EditorSceneManager.IsPreviewScene(gameObject.scene)) return;
+#endif
             if (!RuntimeConfigurator.Exists)
             {
                 return;

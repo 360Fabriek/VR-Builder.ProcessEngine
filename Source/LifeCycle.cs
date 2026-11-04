@@ -53,6 +53,11 @@ namespace VRBuilder.Core
                 throw new InvalidStateException("Process entity can only be activated when not running yet. Stage: " + Stage);
             }
 
+            if (Owner is VRBuilder.Core.Conditions.IDeferredConditionConfiguration deferred)
+            {
+                deferred.ConfigureBeforeActivation();
+            }
+
             StartActivating();
         }
 

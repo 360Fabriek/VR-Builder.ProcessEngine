@@ -67,7 +67,7 @@ namespace VRBuilder.Core.TextToSpeech.Providers
         /// </summary>
         protected virtual string GetPathToFile(string filename)
         {
-            string directory = $"{RuntimeConfigurator.Configuration.GetTextToSpeechSettings().StreamingAssetCacheDirectoryName}/{filename}";
+            string directory = $"{TextToSpeechSettings.Instance.StreamingAssetCacheDirectoryName}/{filename}";
             return directory;
         }
 

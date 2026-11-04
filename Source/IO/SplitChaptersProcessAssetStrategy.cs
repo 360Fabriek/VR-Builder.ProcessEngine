@@ -50,13 +50,23 @@ namespace VRBuilder.Core.IO
         public IProcess GetProcessFromSerializedData(byte[] processData, IEnumerable<byte[]> additionalData, IProcessSerializer serializer)
         {
             IProcess process = serializer.ProcessFromByteArray(processData);
-            IEnumerable<IChapter> chapters = additionalData.Select(data => serializer.ChapterFromByteArray(data));
+            Dictionary<Guid, IChapter> chaptersById = new Dictionary<Guid, IChapter>();
+            foreach(byte[] data in additionalData)
+            {
+                IChapter chapter = serializer.ChapterFromByteArray(data);
+                Guid chapterId = chapter.ChapterMetadata.Guid;
+                // Preserve the previous first-match behavior when chapter files contain duplicate IDs.
+                if(chaptersById.ContainsKey(chapterId) == false)
+                {
+                    chaptersById.Add(chapterId, chapter);
+                }
+            }
 
             List<IChapter> deserializedChapters = new List<IChapter>();
 
             foreach(IChapter chapter in process.Data.Chapters)
             {
-                IChapter deserializedChapter = chapters.FirstOrDefault(c => c.ChapterMetadata.Guid == chapter.ChapterMetadata.Guid);
+                chaptersById.TryGetValue(chapter.ChapterMetadata.Guid, out IChapter deserializedChapter);
 
                 if(deserializedChapter == null)
                 {
@@ -84,6 +94,7 @@ namespace VRBuilder.Core.IO
 
             public ChapterRef(IChapter chapter)
             {
+                SetId(chapter.Id);
                 Data.Steps = new List<IStep>();
                 ChapterMetadata = chapter.ChapterMetadata;
             }

@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine.SceneManagement;
 using VRBuilder.Core.Configuration;
 using VRBuilder.Core.Configuration.Modes;
 using VRBuilder.Core.Properties;
@@ -21,12 +22,15 @@ namespace VRBuilder.Core.RestrictiveEnvironment
     {
         private bool lockOnProcessStart = true;
         private bool lockOnProcessFinished = true;
+        private IProcess runningProcess;
+        private readonly Dictionary<IStepData, LockablePropertyData[]> unlockedSteps = new Dictionary<IStepData, LockablePropertyData[]>();
 
         /// <inheritdoc />
         public override void Unlock(IStepData data, IEnumerable<LockablePropertyData> manualUnlocked)
         {
-            IEnumerable<LockablePropertyData> unlockList = PropertyReflectionHelper.ExtractLockablePropertiesFromStep(data);
-            unlockList = unlockList.Union(manualUnlocked);
+            LockablePropertyData[] manualProperties = manualUnlocked.ToArray();
+            unlockedSteps[data] = manualProperties;
+            IEnumerable<LockablePropertyData> unlockList = GetUnlockProperties(data, manualProperties);
 
             foreach (LockablePropertyData lockable in unlockList)
             {
@@ -40,32 +44,19 @@ namespace VRBuilder.Core.RestrictiveEnvironment
         /// <inheritdoc />
         public override void Lock(IStepData data, IEnumerable<LockablePropertyData> manualUnlocked)
         {
-            // All properties which should be locked
-            IEnumerable<LockablePropertyData> lockList = PropertyReflectionHelper.ExtractLockablePropertiesFromStep(data);
-            lockList = lockList.Union(manualUnlocked);
+            // Include permissions resolved after an additive scene loaded, even if the caller cached its list earlier.
+            if (unlockedSteps.TryGetValue(data, out LockablePropertyData[] previousManualProperties))
+            {
+                manualUnlocked = manualUnlocked.Union(previousManualProperties);
+            }
+            unlockedSteps.Remove(data);
+            IEnumerable<LockablePropertyData> lockList = GetUnlockProperties(data, manualUnlocked);
 
             ITransition completedTransition = data.Transitions.Data.Transitions.FirstOrDefault(transition => transition.IsCompleted);
             if (completedTransition != null)
             {
                 IStepData nextStepData = GetNextStep(completedTransition);
-                IEnumerable<LockablePropertyData> nextStepProperties = PropertyReflectionHelper.ExtractLockablePropertiesFromStep(nextStepData);
-
-                if (nextStepData is ILockableStepData lockableStepData)
-                {
-                    IEnumerable<LockablePropertyData> toUnlock = lockableStepData.ToUnlock.Select(reference => new LockablePropertyData(reference.GetProperty()));
-
-                    foreach (Guid tag in lockableStepData.GroupsToUnlock.Keys)
-                    {
-                        foreach (ISceneObject sceneObject in RuntimeConfigurator.Configuration.SceneObjectRegistry.GetObjects(tag))
-                        {
-                            toUnlock = toUnlock.Union(sceneObject.Properties.Where(property => lockableStepData.GroupsToUnlock[tag].Contains(property.GetType())).Select(property => new LockablePropertyData(property as LockableProperty))).ToList();
-                        }
-                    }
-
-                    nextStepProperties = nextStepProperties.Union(toUnlock);
-                }
-
-                LockablePropertyData[] nextStepPropertyArray = nextStepProperties as LockablePropertyData[] ?? nextStepProperties.ToArray();
+                LockablePropertyData[] nextStepPropertyArray = GetUnlockProperties(nextStepData, Enumerable.Empty<LockablePropertyData>()).ToArray();
                 if (completedTransition is ILockablePropertiesProvider completedLockableTransition)
                 {
                     IEnumerable<LockablePropertyData> transitionLockList = completedLockableTransition.GetLockableProperties();
@@ -103,6 +94,98 @@ namespace VRBuilder.Core.RestrictiveEnvironment
                     lockable.Property.RequestLocked(true, data);
                 }
             }
+        }
+
+        private IEnumerable<LockablePropertyData> GetUnlockProperties(IStepData data, IEnumerable<LockablePropertyData> manualUnlocked)
+        {
+            IEnumerable<LockablePropertyData> properties = PropertyReflectionHelper.ExtractLockablePropertiesFromStep(data).Union(manualUnlocked);
+            if (data is ILockableStepData lockableStepData)
+            {
+                foreach (LockablePropertyReference reference in lockableStepData.ToUnlock)
+                {
+                    ISceneObject sceneObject = reference.TargetObject.Value;
+                    if (sceneObject != null)
+                    {
+                        properties = properties.Union(sceneObject.Properties.OfType<LockableProperty>()
+                            .Where(property => property.GetType().AssemblyQualifiedName == reference.Type)
+                            .Select(property => new LockablePropertyData(property)));
+                    }
+                }
+
+                foreach (Guid tag in lockableStepData.GroupsToUnlock.Keys)
+                {
+                    foreach (ISceneObject sceneObject in RuntimeConfigurator.Configuration.SceneObjectRegistry.GetObjects(tag))
+                    {
+                        properties = properties.Union(sceneObject.Properties.OfType<LockableProperty>()
+                            .Where(property => lockableStepData.GroupsToUnlock[tag].Contains(property.GetType()))
+                            .Select(property => new LockablePropertyData(property)));
+                    }
+                }
+            }
+
+            return properties.Where(property => property.Property != null);
+        }
+
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            if (runningProcess == null)
+            {
+                return;
+            }
+
+            ISceneObjectRegistry registry = RuntimeConfigurator.Configuration.SceneObjectRegistry;
+            foreach (UnityEngine.GameObject root in scene.GetRootGameObjects())
+            {
+                foreach (ProcessSceneObject sceneObject in root.GetComponentsInChildren<ProcessSceneObject>(true))
+                {
+                    // Register also inactive roots, without adding duplicate registry event subscriptions.
+                    if (!registry.GetObjects(sceneObject.Guid).Contains(sceneObject))
+                    {
+                        registry.Register(sceneObject);
+                    }
+                }
+
+                if (lockOnProcessStart)
+                {
+                    foreach (LockableProperty property in root.GetComponentsInChildren<LockableProperty>(true))
+                    {
+                        if (property.InheritSceneObjectLockState && !property.IsAlwaysUnlocked)
+                        {
+                            property.SetLocked(true);
+                        }
+                    }
+                }
+            }
+
+            foreach (KeyValuePair<IStepData, LockablePropertyData[]> step in unlockedSteps.ToArray())
+            {
+                foreach (LockablePropertyData property in GetUnlockProperties(step.Key, step.Value))
+                {
+                    if (property.Property.gameObject.scene == scene && !property.Property.IsAlwaysUnlocked)
+                    {
+                        property.Property.RequestLocked(false, step.Key);
+                    }
+                }
+            }
+        }
+
+        private void OnProcessStageChanged(object sender, ActivationStateChangedEventArgs args)
+        {
+            if (args.Stage == Stage.Inactive)
+            {
+                StopSceneHandling();
+            }
+        }
+
+        private void StopSceneHandling()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            if (runningProcess != null)
+            {
+                runningProcess.LifeCycle.StageChanged -= OnProcessStageChanged;
+                runningProcess = null;
+            }
+            unlockedSteps.Clear();
         }
 
         private IStepData GetNextStep(ITransition completedTransition)
@@ -152,6 +235,11 @@ namespace VRBuilder.Core.RestrictiveEnvironment
         /// <inheritdoc />
         public override void OnProcessStarted(IProcess process)
         {
+            StopSceneHandling();
+            runningProcess = process;
+            runningProcess.LifeCycle.StageChanged += OnProcessStageChanged;
+            SceneManager.sceneLoaded += OnSceneLoaded;
+
             if (lockOnProcessStart)
             {
                 foreach (LockableProperty prop in SceneUtils.GetActiveAndInactiveComponents<LockableProperty>())
@@ -167,6 +255,8 @@ namespace VRBuilder.Core.RestrictiveEnvironment
         /// <inheritdoc />
         public override void OnProcessFinished(IProcess process)
         {
+            StopSceneHandling();
+
             if (lockOnProcessFinished)
             {
                 foreach (LockableProperty prop in SceneUtils.GetActiveAndInactiveComponents<LockableProperty>())

@@ -1,29 +1,28 @@
 {
   "displayName": "VR Builder Process Engine",
-  "name": "co.mindport.processengine",
+  "name": "nl.360fabriek.processengine",
   "version": "1.1.0",
   "unity": "2022.3",
-  "description": "Core Runtime of the process engine of VR Builder.",
+  "description": "360Fabriek fork of the VR Builder process engine runtime.",
   "keywords": [
     "builder",
     "vr",
     "core",
-    "mindport"
+    "360fabriek"
   ],
   "category": "XR",
   "author": {
-    "name": "MindPort",
-    "email": "contact@mindport.co",
-    "url": "https://mindport.co/"
+    "name": "360Fabriek",
+    "url": "https://360fabriek.nl/"
   },
   "documentationUrl": "https://mindport-gmbh.github.io/VR-Builder-Documentation/articles/core/introduction.html",
-  "changelogUrl": "https://github.com/MindPort-GmbH/VR-Builder-Core-Runtime/releases",
+  "changelogUrl": "https://github.com/360Fabriek/VR-Builder.Core-Runtime/releases",
   "_upm": {
     "changelog": "Please refer to the changelog URL"
   },
-  "licensesUrl": "https://github.com/MindPort-GmbH/VR-Builder?tab=Apache-2.0-1-ov-file",
+  "licensesUrl": "https://github.com/360Fabriek/VR-Builder?tab=Apache-2.0-1-ov-file",
   "repository": {
-    "url": "https://github.com/MindPort-GmbH/VR-Builder-Core-Runtime",
+    "url": "https://github.com/360Fabriek/VR-Builder.Core-Runtime",
     "type": "git"
   }
 }

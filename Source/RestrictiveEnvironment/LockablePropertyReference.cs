@@ -5,6 +5,7 @@
 using System.Runtime.Serialization;
 using VRBuilder.Core.Properties;
 using VRBuilder.Core.SceneObjects;
+using VRBuilder.Core.Utils;
 
 namespace VRBuilder.Core.RestrictiveEnvironment
 {
@@ -26,8 +27,12 @@ namespace VRBuilder.Core.RestrictiveEnvironment
         [DataMember]
         public string Type;
 
-        [IgnoreDataMember]
-        private LockableProperty property;
+        [OnDeserialized]
+        private void OnDeserialized(StreamingContext context)
+        {
+            // Type is a plain JSON string, so the serializer's type binder does not migrate it.
+            Type = ReflectionUtils.GetTypeFromAssemblyQualifiedName(Type)?.AssemblyQualifiedName ?? Type;
+        }
 
         public LockablePropertyReference()
         {
@@ -44,19 +49,14 @@ namespace VRBuilder.Core.RestrictiveEnvironment
         /// </summary>
         public LockableProperty GetProperty()
         {
-            if (property == null)
+            // Resolve each time so unloading and reloading a scene cannot retain an old component.
+            ISceneObject target = TargetObject?.Value;
+            if (target == null) return null;
+            foreach (ISceneObjectProperty property in target.Properties)
             {
-                foreach (ISceneObjectProperty prop in TargetObject.Value.Properties)
-                {
-                    if (prop.GetType().AssemblyQualifiedName.Equals(Type))
-                    {
-                        property = (LockableProperty)prop;
-                        break;
-                    }
-                }
+                if (property.GetType().AssemblyQualifiedName == Type) return property as LockableProperty;
             }
-
-            return property;
+            return null;
         }
     }
 }

@@ -11,6 +11,9 @@ namespace VRBuilder.Core
     /// </summary>
     public interface IStepData : IRenameableData, IDescribedData, IEntitySequenceDataWithMode<IStepChild>
     {
+        /// <summary>Whether this step should be marked hidden in process overviews; execution is unchanged.</summary>
+        bool IsHidden { get; set; }
+
         /// <summary>
         /// The list of the step's behaviors.
         /// </summary>

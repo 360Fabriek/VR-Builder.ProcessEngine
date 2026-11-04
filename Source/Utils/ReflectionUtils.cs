@@ -7,7 +7,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Newtonsoft.Json;
 using VRBuilder.Core.Attributes;
+using VRBuilder.Core.Serialization.NewtonsoftJson;
 
 namespace VRBuilder.Core.Utils
 {
@@ -100,8 +102,21 @@ namespace VRBuilder.Core.Utils
         public static IEnumerable<Type> GetConcreteImplementationsOf(Type baseType)
         {
             return GetAllTypes()
-                .Where(baseType.IsAssignableFrom)
+                .Where(type => IsAssignableFromSafely(baseType, type))
                 .Where(type => type.IsClass && type.IsAbstract == false);
+        }
+
+        private static bool IsAssignableFromSafely(Type baseType, Type candidateType)
+        {
+            try
+            {
+                return baseType.IsAssignableFrom(candidateType);
+            }
+            catch (TypeLoadException)
+            {
+                // Mono can enumerate optional COM/plugin types whose vtables cannot be loaded.
+                return false;
+            }
         }
 
         /// <summary>
@@ -127,7 +142,7 @@ namespace VRBuilder.Core.Utils
         public static IEnumerable<Type> GetConcreteTypesAssignableFrom(Type baseType, bool excludeEditor = true)
         {
             return GetAllTypes()
-                .Where(baseType.IsAssignableFrom)
+                .Where(type => IsAssignableFromSafely(baseType, type))
                 .Where(t => t.IsConcretePublicClass())
                 .Where(t => !excludeEditor || t.IsNonEditorType());
         }
@@ -169,7 +184,7 @@ namespace VRBuilder.Core.Utils
         public static List<Type> GetFilteredPropertyTypes(Type propertyType)
         {
             return GetAllTypes()
-                .Where(type => type.IsAssignableFrom(propertyType))
+                .Where(type => IsAssignableFromSafely(type, propertyType))
                 .Where(type => type.IsPublic && !type.IsPointer && !type.IsByRef)
                 .Where(type => type.IsNonEditorType())
                 .ToList();
@@ -184,7 +199,7 @@ namespace VRBuilder.Core.Utils
         public static List<Type> GetFilteredAvailableExtensions(IEnumerable<Type> extensionTypes)
         {
             return GetAllTypes()
-                .Where(type => extensionTypes.Any(ext => ext.IsAssignableFrom(type)))
+                .Where(type => extensionTypes.Any(ext => IsAssignableFromSafely(ext, type)))
                 .Where(type => type.IsConcretePublicClass())
                 .Where(type => type.IsNonEditorType())
                 .ToList();
@@ -417,7 +432,28 @@ namespace VRBuilder.Core.Utils
         /// </summary>
         public static Type GetTypeFromAssemblyQualifiedName(string assemblyQualifiedName)
         {
-            return string.IsNullOrEmpty(assemblyQualifiedName) ? null : GetAllTypes().FirstOrDefault(type => type.AssemblyQualifiedName == assemblyQualifiedName);
+            if (string.IsNullOrEmpty(assemblyQualifiedName)) return null;
+            Type type = GetAllTypes().FirstOrDefault(candidate => candidate.AssemblyQualifiedName == assemblyQualifiedName);
+            if (type != null) return type;
+
+            int separator = -1;
+            int depth = 0;
+            for (int i = 0; i < assemblyQualifiedName.Length; i++)
+            {
+                if (assemblyQualifiedName[i] == '[') depth++;
+                else if (assemblyQualifiedName[i] == ']') depth--;
+                else if (assemblyQualifiedName[i] == ',' && depth == 0) { separator = i; break; }
+            }
+            if (separator < 0) return null;
+            try
+            {
+                return new NewtonsoftJsonProcessSerializer.ProcessSerializationBinder().BindToType(
+                    assemblyQualifiedName.Substring(separator + 1).Trim(), assemblyQualifiedName.Substring(0, separator));
+            }
+            catch (JsonSerializationException)
+            {
+                return null;
+            }
 
         }
 
